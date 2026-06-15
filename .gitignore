@@ -1,0 +1,43 @@
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local IDE / editor
+.vscode/
+.idea/
+
+# Temporary work
+tmp/**
+!tmp/.gitkeep
+
+# Runtime logs
+logs/**
+!logs/.gitkeep
+Log/**
+
+# Raw / generated experiment data
+data/inbox/**
+!data/inbox/.gitkeep
+data/raw/**
+!data/raw/.gitkeep
+data/processed/**
+!data/processed/.gitkeep
+data/exports/**
+!data/exports/.gitkeep
+
+# Large third-party binaries
+third_party/orbbec/archives/**
+!third_party/orbbec/archives/.gitkeep
+third_party/orbbec/sdk/**
+!third_party/orbbec/sdk/.gitkeep
+third_party/orbbec/viewer/**
+!third_party/orbbec/viewer/.gitkeep
+
+# Local packaging / handoff artifacts
+migration_bundle/**
+gemini335_migration_bundle_*.zip
