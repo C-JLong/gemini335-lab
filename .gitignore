@@ -21,6 +21,7 @@ logs/**
 Log/**
 
 # Raw / generated experiment data
+LabData/
 data/inbox/**
 !data/inbox/.gitkeep
 data/raw/**
