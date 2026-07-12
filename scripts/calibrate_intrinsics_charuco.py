@@ -62,11 +62,11 @@ def build_charuco_object_points(board, charuco_ids):
 def main() -> int:
     parser = argparse.ArgumentParser(description="Compute single-camera intrinsics from ChArUco images.")
     parser.add_argument("--capture-dir", required=True)
-    parser.add_argument("--cols", type=int, required=True, help="Board square count horizontally")
-    parser.add_argument("--rows", type=int, required=True, help="Board square count vertically")
-    parser.add_argument("--square-size-mm", type=float, required=True)
-    parser.add_argument("--marker-size-mm", type=float, required=True)
-    parser.add_argument("--dictionary", required=True, choices=sorted(DICT_NAME_TO_ID))
+    parser.add_argument("--cols", type=int, default=10, help="Board square count horizontally")
+    parser.add_argument("--rows", type=int, default=10, help="Board square count vertically")
+    parser.add_argument("--square-size-mm", type=float, default=48.0)
+    parser.add_argument("--marker-size-mm", type=float, default=36.0)
+    parser.add_argument("--dictionary", default="DICT_5X5_250", choices=sorted(DICT_NAME_TO_ID))
     args = parser.parse_args()
 
     capture_dir = Path(args.capture_dir).resolve()

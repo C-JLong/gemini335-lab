@@ -13,22 +13,6 @@ from pyorbbecsdk.examples.utils import frame_to_bgr_image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_ROOT = PROJECT_ROOT / "data" / "raw"
-DICT_NAME_TO_ID = {
-    "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
-    "DICT_4X4_100": cv2.aruco.DICT_4X4_100,
-    "DICT_4X4_250": cv2.aruco.DICT_4X4_250,
-    "DICT_4X4_1000": cv2.aruco.DICT_4X4_1000,
-    "DICT_5X5_50": cv2.aruco.DICT_5X5_50,
-    "DICT_5X5_100": cv2.aruco.DICT_5X5_100,
-    "DICT_5X5_250": cv2.aruco.DICT_5X5_250,
-    "DICT_5X5_1000": cv2.aruco.DICT_5X5_1000,
-    "DICT_6X6_50": cv2.aruco.DICT_6X6_50,
-    "DICT_6X6_100": cv2.aruco.DICT_6X6_100,
-    "DICT_6X6_250": cv2.aruco.DICT_6X6_250,
-    "DICT_6X6_1000": cv2.aruco.DICT_6X6_1000,
-}
-AUTO_5X5_DICTIONARIES = ["DICT_5X5_50", "DICT_5X5_100", "DICT_5X5_250", "DICT_5X5_1000"]
-DICTIONARY_CHOICES = ["AUTO_5X5", *sorted(DICT_NAME_TO_ID)]
 
 
 def timestamp_name() -> str:
@@ -44,59 +28,26 @@ def build_output_dir(name: str) -> Path:
 def save_metadata(
     output_dir: Path,
     session_name: str,
-    board_cols: int,
-    board_rows: int,
+    pattern_cols: int,
+    pattern_rows: int,
     square_size_mm: float,
-    marker_size_mm: float,
-    dictionary: str,
     devices: list[dict],
 ) -> None:
     payload = {
         "session_name": session_name,
         "created_at_local": datetime.now().isoformat(timespec="seconds"),
-        "pattern_type": "charuco",
-        "board": {
-            "cols": board_cols,
-            "rows": board_rows,
-            "square_size_mm": square_size_mm,
-            "marker_size_mm": marker_size_mm,
-            "dictionary": dictionary,
-        },
+        "pattern_type": "chessboard",
+        "inner_corners": {"cols": pattern_cols, "rows": pattern_rows},
+        "square_size_mm": square_size_mm,
         "devices": devices,
         "notes": [
-            "This capture set is intended for stereo extrinsic calibration.",
-            "Each saved index should contain the same ChArUco board pose from both cameras.",
+            "This is the legacy stereo calibration capture script from before the ChArUco board update.",
+            "Each saved index should contain the same chessboard pose from both cameras.",
         ],
     }
     (output_dir / "capture_info.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-
-
-def dictionary_names(dict_name: str) -> list[str]:
-    if dict_name == "AUTO_5X5":
-        return AUTO_5X5_DICTIONARIES
-    return [dict_name]
-
-
-def create_charuco_detectors(cols: int, rows: int, square_mm: float, marker_mm: float, dict_name: str):
-    detectors = []
-    for name in dictionary_names(dict_name):
-        for legacy in (False, True):
-            dictionary = cv2.aruco.getPredefinedDictionary(DICT_NAME_TO_ID[name])
-            board = cv2.aruco.CharucoBoard((cols, rows), square_mm, marker_mm, dictionary)
-            if hasattr(board, "setLegacyPattern"):
-                board.setLegacyPattern(legacy)
-            label = f"{name}:{'legacy' if legacy else 'normal'}"
-            detectors.append((label, board, cv2.aruco.CharucoDetector(board)))
-    return detectors
-
-
-def create_charuco_detector(cols: int, rows: int, square_mm: float, marker_mm: float, dict_name: str):
-    dictionary = cv2.aruco.getPredefinedDictionary(DICT_NAME_TO_ID[dict_name])
-    board = cv2.aruco.CharucoBoard((cols, rows), square_mm, marker_mm, dictionary)
-    detector = cv2.aruco.CharucoDetector(board)
-    return board, detector
 
 
 def open_color_pipeline(device) -> tuple[Pipeline, Config, VideoStreamProfile]:
@@ -111,10 +62,10 @@ def open_color_pipeline(device) -> tuple[Pipeline, Config, VideoStreamProfile]:
     return pipeline, config, color_profile
 
 
-def annotate_display(image, found, charuco_corners, charuco_ids, dict_name, capture_index, title):
+def annotate_display(image, pattern_size, found, refined_corners, capture_index, title):
     display = image.copy()
-    if found and charuco_corners is not None and charuco_ids is not None:
-        cv2.aruco.drawDetectedCornersCharuco(display, charuco_corners, charuco_ids)
+    if found and refined_corners is not None:
+        cv2.drawChessboardCorners(display, pattern_size, refined_corners, found)
         status = "DETECTED"
         status_color = (0, 220, 0)
     else:
@@ -122,19 +73,10 @@ def annotate_display(image, found, charuco_corners, charuco_ids, dict_name, capt
         status_color = (0, 0, 255)
 
     cv2.putText(display, title, (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2, cv2.LINE_AA)
+    cv2.putText(display, status, (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2, cv2.LINE_AA)
     cv2.putText(
         display,
-        status,
-        (20, 65),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        status_color,
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        display,
-        f"Dict: {dict_name or '-'}  corners: {0 if charuco_ids is None else len(charuco_ids)}",
+        f"Saved pairs: {capture_index}",
         (20, 100),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
@@ -144,18 +86,8 @@ def annotate_display(image, found, charuco_corners, charuco_ids, dict_name, capt
     )
     cv2.putText(
         display,
-        f"Saved pairs: {capture_index}",
-        (20, 135),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        display,
         "SPACE=save pair  Q=quit",
-        (20, 170),
+        (20, 135),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
         (255, 255, 255),
@@ -165,17 +97,24 @@ def annotate_display(image, found, charuco_corners, charuco_ids, dict_name, capt
     return display
 
 
-def detect_pattern(image, detectors):
+def detect_pattern(image, pattern_size):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    best = (False, None, None, None)
-    best_count = -1
-    for label, _board, detector in detectors:
-        charuco_corners, charuco_ids, _marker_corners, _marker_ids = detector.detectBoard(gray)
-        count = 0 if charuco_ids is None else len(charuco_ids)
-        if count > best_count:
-            best = (count >= 6, charuco_corners, charuco_ids, label)
-            best_count = count
-    return best
+    found, corners = cv2.findChessboardCorners(
+        gray,
+        pattern_size,
+        flags=cv2.CALIB_CB_ADAPTIVE_THRESH
+        | cv2.CALIB_CB_NORMALIZE_IMAGE
+        | cv2.CALIB_CB_FAST_CHECK,
+    )
+    refined_corners = None
+    if found and corners is not None:
+        criteria = (
+            cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+            30,
+            0.001,
+        )
+        refined_corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+    return found, refined_corners
 
 
 def get_screen_size() -> tuple[int, int]:
@@ -202,13 +141,11 @@ def fit_to_screen(image, screen_width: int, screen_height: int):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Capture synchronized ChArUco image pairs for stereo calibration.")
+    parser = argparse.ArgumentParser(description="Capture synchronized legacy chessboard image pairs for stereo calibration.")
     parser.add_argument("--name", required=True, help="Session name, for example stereo_board_01")
-    parser.add_argument("--cols", type=int, default=10, help="Board square count horizontally")
-    parser.add_argument("--rows", type=int, default=10, help="Board square count vertically")
-    parser.add_argument("--square-size-mm", type=float, default=48.0)
-    parser.add_argument("--marker-size-mm", type=float, default=36.0)
-    parser.add_argument("--dictionary", default="AUTO_5X5", choices=DICTIONARY_CHOICES)
+    parser.add_argument("--inner-cols", type=int, default=14)
+    parser.add_argument("--inner-rows", type=int, default=14)
+    parser.add_argument("--square-size-mm", type=float, default=50.0)
     parser.add_argument(
         "--layout",
         choices=["vertical", "horizontal"],
@@ -217,9 +154,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    detectors = create_charuco_detectors(
-        args.cols, args.rows, args.square_size_mm, args.marker_size_mm, args.dictionary
-    )
+    pattern_size = (args.inner_cols, args.inner_rows)
     screen_width, screen_height = get_screen_size()
     session_dir = build_output_dir(args.name)
     left_dir = session_dir / "cam0"
@@ -228,10 +163,8 @@ def main() -> int:
     right_dir.mkdir(parents=True, exist_ok=False)
 
     print(f"[INFO] Output directory: {session_dir}")
-    print(f"[INFO] ChArUco board: {args.cols} x {args.rows}")
+    print(f"[INFO] Pattern: {args.inner_cols} x {args.inner_rows}")
     print(f"[INFO] Square size: {args.square_size_mm} mm")
-    print(f"[INFO] Marker size: {args.marker_size_mm} mm")
-    print(f"[INFO] Dictionary: {args.dictionary}")
     print(f"[INFO] Preview layout: {args.layout}")
     print(f"[INFO] Screen size: {screen_width} x {screen_height}")
 
@@ -267,11 +200,9 @@ def main() -> int:
         save_metadata(
             session_dir,
             session_dir.name,
-            args.cols,
-            args.rows,
+            args.inner_cols,
+            args.inner_rows,
             args.square_size_mm,
-            args.marker_size_mm,
-            args.dictionary,
             devices_meta,
         )
 
@@ -280,7 +211,7 @@ def main() -> int:
 
         print("[INFO] Both cameras started.")
         print("[INFO] Controls:")
-        print("       SPACE = save current pair only if ChArUco is detected in both views")
+        print("       SPACE = save current pair only if chessboard is detected in both views")
         print("       Q     = quit")
 
         capture_index = 0
@@ -300,30 +231,18 @@ def main() -> int:
                 if image is None:
                     images = []
                     break
-                found, charuco_corners, charuco_ids, detected_dict = detect_pattern(image, detectors)
+                found, refined_corners = detect_pattern(image, pattern_size)
                 images.append(image)
-                detections.append((found, charuco_corners, charuco_ids, detected_dict))
+                detections.append((found, refined_corners))
 
             if len(images) != 2:
                 continue
 
             display0 = annotate_display(
-                images[0],
-                detections[0][0],
-                detections[0][1],
-                detections[0][2],
-                detections[0][3],
-                capture_index,
-                "Camera 0",
+                images[0], pattern_size, detections[0][0], detections[0][1], capture_index, "Camera 0"
             )
             display1 = annotate_display(
-                images[1],
-                detections[1][0],
-                detections[1][1],
-                detections[1][2],
-                detections[1][3],
-                capture_index,
-                "Camera 1",
+                images[1], pattern_size, detections[1][0], detections[1][1], capture_index, "Camera 1"
             )
 
             if args.layout == "vertical":
@@ -331,20 +250,16 @@ def main() -> int:
             else:
                 combined = cv2.hconcat([display0, display1])
             combined = fit_to_screen(combined, screen_width, screen_height)
-            cv2.namedWindow("Stereo Calibration Capture", cv2.WINDOW_NORMAL)
-            cv2.imshow("Stereo Calibration Capture", combined)
+            cv2.namedWindow("Stereo Calibration Capture Legacy", cv2.WINDOW_NORMAL)
+            cv2.imshow("Stereo Calibration Capture Legacy", combined)
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("q"):
                 break
 
             if key == ord(" "):
-                if not all(found for found, _corners, _ids, _dict in detections):
-                    print("[WARN] ChArUco board must be detected in both cameras. Pair not saved.")
-                    continue
-                detected_dicts = {detected_dict for _found, _corners, _ids, detected_dict in detections}
-                if len(detected_dicts) != 1:
-                    print(f"[WARN] Cameras detected different dictionaries: {sorted(detected_dicts)}")
+                if not all(found for found, _corners in detections):
+                    print("[WARN] Chessboard must be detected in both cameras. Pair not saved.")
                     continue
 
                 capture_index += 1

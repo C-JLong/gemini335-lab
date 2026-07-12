@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pyorbbecsdk import Context, OBMultiDeviceSyncMode, Pipeline, RecordDevice
+from pyorbbecsdk import Context, OBFormat, OBMultiDeviceSyncMode, OBSensorType, Pipeline, RecordDevice
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -77,16 +77,117 @@ def apply_sync_config(device, desired: dict) -> dict[str, Any]:
     }
 
 
+def profile_format_name(profile: Any) -> str:
+    try:
+        return profile.get_format().name
+    except Exception:
+        return str(profile.get_format())
+
+
+def choose_video_profile(
+    pipeline: Pipeline,
+    sensor_type: Any,
+    width: int,
+    height: int,
+    fps: int,
+    preferred_format: Any | None = None,
+) -> Any:
+    profiles = pipeline.get_stream_profile_list(sensor_type)
+    fallback = None
+    for index in range(len(profiles)):
+        profile = profiles[index].as_video_stream_profile()
+        if (
+            profile.get_width() == width
+            and profile.get_height() == height
+            and profile.get_fps() == fps
+        ):
+            if preferred_format is None or profile.get_format() == preferred_format:
+                return profile
+            if fallback is None:
+                fallback = profile
+    if fallback is not None:
+        return fallback
+    raise RuntimeError(f"No stream profile found for {width}x{height}@{fps}")
+
+
+def enable_streams_for_preset(
+    device: Any,
+    pipeline: Pipeline,
+    config: Any,
+    preset: str,
+) -> tuple[list[str], list[str]]:
+    enabled_sensors: list[str] = []
+    skipped_sensors: list[str] = []
+
+    if preset == "full":
+        sensors = device.get_sensor_list()
+        for j in range(len(sensors)):
+            st = sensors[j].get_type()
+            try:
+                config.enable_stream(st)
+                enabled_sensors.append(getattr(st, "name", str(st)))
+            except Exception as exc:
+                skipped_sensors.append(f"{st}: {exc}")
+        return enabled_sensors, skipped_sensors
+
+    if preset == "rgbd_15":
+        stream_specs = [
+            ("COLOR", OBSensorType.COLOR_SENSOR, 1280, 720, 15, OBFormat.MJPG),
+            ("DEPTH", OBSensorType.DEPTH_SENSOR, 640, 480, 15, OBFormat.Y16),
+        ]
+    elif preset == "rgbd_6":
+        stream_specs = [
+            ("COLOR", OBSensorType.COLOR_SENSOR, 1280, 720, 6, OBFormat.MJPG),
+            ("DEPTH", OBSensorType.DEPTH_SENSOR, 640, 480, 6, OBFormat.Y16),
+        ]
+    else:
+        raise ValueError(f"Unsupported stream preset: {preset}")
+
+    for name, sensor_type, width, height, fps, fmt in stream_specs:
+        try:
+            profile = choose_video_profile(pipeline, sensor_type, width, height, fps, fmt)
+            config.enable_stream(profile)
+            enabled_sensors.append(
+                f"{name}_SENSOR:{profile.get_width()}x{profile.get_height()}@"
+                f"{profile.get_fps()}:{profile_format_name(profile)}"
+            )
+        except Exception as exc:
+            skipped_sensors.append(f"{name}: {exc}")
+
+    if len(enabled_sensors) < len(stream_specs):
+        raise RuntimeError(f"Failed to enable required streams for {preset}: {skipped_sensors}")
+
+    return enabled_sensors, skipped_sensors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Record two Gemini 335 devices with project sync config applied.")
     parser.add_argument("--name", required=True, help="Experiment name")
-    parser.add_argument("--duration", type=float, required=True, help="Duration in seconds")
+    parser.add_argument(
+        "--duration",
+        type=float,
+        help="Duration in seconds. Omit to record until Ctrl+C is pressed.",
+    )
     parser.add_argument(
         "--config",
         default=str(CONFIG_ROOT / "multi_device_sync_config.json"),
         help="Path to project sync config JSON.",
     )
+    parser.add_argument(
+        "--output-root",
+        default=str(RAW_ROOT),
+        help="Root directory for the recording session. Defaults to project data/raw.",
+    )
+    parser.add_argument(
+        "--stream-preset",
+        choices=["full", "rgbd_15", "rgbd_6"],
+        default="full",
+        help="full records all sensors. rgbd_15/rgbd_6 reduce USB bandwidth by recording only color+depth.",
+    )
     args = parser.parse_args()
+
+    if args.duration is not None and args.duration <= 0:
+        parser.error("--duration must be greater than 0")
 
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
@@ -101,7 +202,9 @@ def main() -> int:
     if devs.get_count() < 2:
         raise RuntimeError(f"Need 2 devices, found {devs.get_count()}.")
 
-    session_root = RAW_ROOT / f"{timestamp_name()}_{args.name}"
+    output_root = Path(args.output_root).resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    session_root = output_root / f"{timestamp_name()}_{args.name}"
     session_root.mkdir(parents=True, exist_ok=False)
     print(f"[INFO] Session root : {session_root}")
 
@@ -131,16 +234,9 @@ def main() -> int:
 
             pipe = Pipeline(dev)
             cfg = pipe.get_config()
-            sensors = dev.get_sensor_list()
-            enabled_sensors = []
-            skipped_sensors = []
-            for j in range(len(sensors)):
-                st = sensors[j].get_type()
-                try:
-                    cfg.enable_stream(st)
-                    enabled_sensors.append(getattr(st, "name", str(st)))
-                except Exception as exc:
-                    skipped_sensors.append(f"{st}: {exc}")
+            enabled_sensors, skipped_sensors = enable_streams_for_preset(
+                dev, pipe, cfg, args.stream_preset
+            )
 
             bag_path = device_dir / "recording.bag"
             rec = RecordDevice(dev, str(bag_path))
@@ -185,9 +281,11 @@ def main() -> int:
         ctx.enable_multi_device_sync(60000)
         start = time.time()
         print("[INFO] Both devices are recording with sync enabled.")
+        if args.duration is None:
+            print("[INFO] Recording until Ctrl+C is pressed.")
         while not STOP_REQUESTED:
             elapsed = time.time() - start
-            if elapsed >= args.duration:
+            if args.duration is not None and elapsed >= args.duration:
                 break
             time.sleep(0.05)
 
@@ -224,6 +322,16 @@ def main() -> int:
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"[INFO] Saved summary: {session_root / 'session_summary.json'}")
+    failed_devices = [
+        item["serial"]
+        for item in summary["devices"]
+        if not item["frame_counts"]
+        or item["frame_counts"].get("COLOR_FRAME", 0) == 0
+        or item["frame_counts"].get("DEPTH_FRAME", 0) == 0
+    ]
+    if failed_devices:
+        print(f"[ERROR] Recording incomplete. Devices without color/depth frames: {failed_devices}")
+        return 2
     return 0
 
 

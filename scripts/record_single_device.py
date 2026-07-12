@@ -64,8 +64,8 @@ def frame_type_name(frame_type: Any) -> str:
         return str(frame_type)
 
 
-def build_session_paths(name: str) -> tuple[Path, Path, Path]:
-    session_dir = RAW_ROOT / f"{timestamp_name()}_{name}"
+def build_session_paths(name: str, output_root: Path) -> tuple[Path, Path, Path]:
+    session_dir = output_root / f"{timestamp_name()}_{name}"
     bag_path = session_dir / "recording.bag"
     meta_path = session_dir / "metadata.json"
     session_dir.mkdir(parents=True, exist_ok=False)
@@ -92,12 +92,19 @@ def main() -> int:
         default=None,
         help="Optional device serial number. Required later when multiple devices are connected.",
     )
+    parser.add_argument(
+        "--output-root",
+        default=str(RAW_ROOT),
+        help="Root directory for the recording session. Defaults to project data/raw.",
+    )
     args = parser.parse_args()
 
     if args.duration <= 0:
         raise ValueError("--duration must be greater than 0 seconds.")
 
-    session_dir, bag_path, meta_path = build_session_paths(args.name)
+    output_root = Path(args.output_root).resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    session_dir, bag_path, meta_path = build_session_paths(args.name, output_root)
 
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)

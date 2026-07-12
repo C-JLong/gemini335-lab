@@ -23,10 +23,11 @@ This project currently supports:
 
 The current ChArUco board parameters used in this project are:
 
-- board squares: `15 x 15`
-- `squareLength = 50 mm`
-- `markerLength = 37 mm`
+- board squares: `10 x 10`
+- `squareLength = 48 mm`
+- `markerLength = 36 mm`
 - dictionary: `DICT_5X5_250`
+- board file name: `calib.io_charuco_500*500_10*10_48_36_DICT_5*5`
 
 ## Repository Layout
 
@@ -130,7 +131,14 @@ Compute intrinsics:
 
 ```powershell
 Set-Location <project-root>
-.\.venv\Scripts\python.exe .\scripts\calibrate_intrinsics_charuco.py --capture-dir .\data\raw\calibration\<capture_dir> --cols 15 --rows 15 --square-size-mm 50 --marker-size-mm 37 --dictionary DICT_5X5_250
+.\.venv\Scripts\python.exe .\scripts\calibrate_intrinsics_charuco.py --capture-dir .\data\raw\calibration\<capture_dir> --cols 10 --rows 10 --square-size-mm 48 --marker-size-mm 36 --dictionary DICT_5X5_250
+```
+
+For the default `10 x 10`, `48 / 36 mm`, `DICT_5X5_250` board, the board arguments can be omitted:
+
+```powershell
+Set-Location <project-root>
+.\.venv\Scripts\python.exe .\scripts\calibrate_intrinsics_charuco.py --capture-dir .\data\raw\calibration\<capture_dir>
 ```
 
 ### 6. Dual-Camera ChArUco Extrinsics
@@ -146,7 +154,14 @@ Compute stereo extrinsics:
 
 ```powershell
 Set-Location <project-root>
-.\.venv\Scripts\python.exe .\scripts\calibrate_stereo_extrinsics_charuco.py --capture-dir .\data\raw\stereo_calibration\<capture_dir> --left-intrinsics .\data\processed\calibration\<left_intrinsics_dir>\intrinsics_result.json --right-intrinsics .\data\processed\calibration\<right_intrinsics_dir>\intrinsics_result.json --cols 15 --rows 15 --square-size-mm 50 --marker-size-mm 37 --dictionary DICT_5X5_250
+.\.venv\Scripts\python.exe .\scripts\calibrate_stereo_extrinsics_charuco.py --capture-dir .\data\raw\stereo_calibration\<capture_dir> --left-intrinsics .\data\processed\calibration\<left_intrinsics_dir>\intrinsics_result.json --right-intrinsics .\data\processed\calibration\<right_intrinsics_dir>\intrinsics_result.json --cols 10 --rows 10 --square-size-mm 48 --marker-size-mm 36 --dictionary DICT_5X5_250
+```
+
+For the default `10 x 10`, `48 / 36 mm`, `DICT_5X5_250` board, the board arguments can be omitted:
+
+```powershell
+Set-Location <project-root>
+.\.venv\Scripts\python.exe .\scripts\calibrate_stereo_extrinsics_charuco.py --capture-dir .\data\raw\stereo_calibration\<capture_dir> --left-intrinsics .\data\processed\calibration\<left_intrinsics_dir>\intrinsics_result.json --right-intrinsics .\data\processed\calibration\<right_intrinsics_dir>\intrinsics_result.json
 ```
 
 ## Important Notes
